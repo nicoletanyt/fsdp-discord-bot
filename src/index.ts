@@ -8,6 +8,7 @@ import { ResearchAgent } from './agent.js';
 import { Repository } from './repository.js';
 import { History } from './history.js';
 import { BusyError, RequestQueue } from './concurrency.js';
+import { safeFailure } from './diagnostics.js';
 
 process.umask(0o077);
 const config = loadConfig();
@@ -50,23 +51,31 @@ client.on(Events.MessageCreate, message => {
     cooldowns.set(cooldownKey, now);
     for (const [key, timestamp] of cooldowns) if (now - timestamp > config.cooldownMs) cooldowns.delete(key);
     const scope = `${message.guildId}-${message.channelId}`;
+    const started = performance.now();
+    let stage = 'queue';
     try {
       await queue.run(scope, async () => {
+        stage = 'member_fetch';
         const member = await message.guild!.members.fetch({ user: message.author.id, force: true });
         const budget = new RequestBudget(config.maxToolCalls, config.maxRepoFiles);
+        stage = 'typing';
         if ('sendTyping' in message.channel) await message.channel.sendTyping();
         const typing = setInterval(() => {
           if ('sendTyping' in message.channel) void message.channel.sendTyping().catch(() => {});
         }, 8000);
         try {
-          const answer = await agent.answer(scope, `${message.author.username} asks: ${prompt}`, budget, [
+          stage = 'model';
+          const answer = await agent.answer(scope, prompt, budget, [
             ...repository.tools(budget, prompt), ...history.tools(budget, member),
           ]);
+          stage = 'reply';
           for (let offset = 0; offset < answer.length; offset += 1900) await message.reply(answer.slice(offset, offset + 1900));
         } finally { clearInterval(typing); }
       });
     } catch (error) {
-      console.warn(error instanceof BusyError ? 'Discord request queue full' : 'AI request failed or reached an enforced limit');
+      console.warn(JSON.stringify({ event: 'discord_request_failed', stage,
+        durationMs: Math.round(performance.now() - started), ...(stage !== 'model' && stage !== 'reply' && { modelCallCount: 0 }),
+        ...(error instanceof BusyError ? { category: 'queue_full' } : { failure: safeFailure(error) }) }));
       await message.reply(error instanceof BusyError ? 'I’m busy. Please try again shortly.' : 'I couldn’t complete that request. Please try a narrower question or retry shortly.');
     }
   })().catch(() => console.warn('Discord message handling failed'));

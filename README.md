@@ -135,6 +135,14 @@ The service restarts on crashes and after reboot, uses a private state directory
 
 ## Verification
 
+### Safe request diagnostics
+
+The bot writes structured JSON diagnostics to stdout/stderr (or `journalctl -u discord-agent` under systemd). `model_call_started` and `model_call_finished` identify the provider/model, a random request ID, the per-request model-call count, elapsed `durationMs`, and the model stop reason. Model-call duration includes provider transport/retry time; the count tracks Pi stream invocations, including Pi-level retries and tool turns. `request_finished` includes total request duration and tool/retrieval counters.
+
+Provider errors are classified using numeric HTTP status and allowlisted reasons such as `API_KEY_INVALID`, `RESOURCE_EXHAUSTED`, or `INVALID_ARGUMENT`. Raw error bodies, headers, URLs, API keys, prompts, retrieved text and model replies are never included in these diagnostics. `request_timeout` and `limit_exceeded`/`limit_reached` distinguish deadlines and named budgets from provider errors. A `discord_request_failed` event includes the processing stage; a failure before the model starts reports zero model calls.
+
+For a failing question, share only the JSON diagnostics for its request ID. They distinguish authentication/quota/model/API failures, SDK errors, timeouts, and enforced limits without exposing discussion content.
+
 ```bash
 npm run check
 npm test
