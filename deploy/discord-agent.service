@@ -1,0 +1,31 @@
+[Unit]
+Description=Discord Pi research agent
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=discord-agent
+Group=discord-agent
+WorkingDirectory=/opt/discord-agent/app
+EnvironmentFile=/opt/discord-agent/app/.env
+# Install Node 24 LTS system-wide. Adjust this absolute path if necessary.
+ExecStart=/usr/bin/node /opt/discord-agent/app/dist/index.js
+Environment=NODE_ENV=production
+Environment=DATA_DIR=/var/lib/discord-agent
+StateDirectory=discord-agent
+StateDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=35
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/discord-agent/repository /var/lib/discord-agent
+# Optional private-repository SSH configuration: put deploy keys here, not in the checkout.
+Environment=HOME=/var/lib/discord-agent
+
+[Install]
+WantedBy=multi-user.target
